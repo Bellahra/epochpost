@@ -2,6 +2,9 @@
 Data/
 *.sdf
 
+# for test
+test/
+
 # Post-processing results
 postprocess/
 *.gif
