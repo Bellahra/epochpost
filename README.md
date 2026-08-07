@@ -133,35 +133,152 @@ run_config("epochpost_input.json")
 
 ---
 
-## 4. 全局 settings
+## 4. 全局 settings 与绘图默认样式
 
-完整形式为：
+推荐配置为：
 
 ```json
 "settings": {
   "data_dir": "Data",
   "out_dir": null,
   "laser_wavelength_nm": 800.0,
-  "dpi": 180,
   "space_unit": "nm",
   "space_factor": 1000000000.0,
   "time_unit": "fs",
-  "time_factor": 1000000000000000.0
+  "time_factor": 1000000000000000.0,
+  "plot": {
+    "format": "png",
+    "dpi": 300,
+    "fig_single": [3.4, 2.7],
+    "fig_double": [7.0, 4.8],
+    "font_family": "Arial",
+    "mathtext_fontset": "stix",
+    "font_label": 10,
+    "font_tick": 8,
+    "font_legend": 8,
+    "font_panel": 11,
+    "font_annotation": 8,
+    "line_width": 1.5,
+    "axis_width": 1.0,
+    "bbox_inches": "tight"
+  }
 }
 ```
 
-含义：
+这些值已经写成 `epochpost.py` 的默认值，因此如果你满意这些论文绘图规范，`settings.plot` 可以整个省略。
 
 | 参数 | 含义 | 默认值 |
 |---|---|---|
 | `data_dir` | SDF 文件目录 | `Data` |
 | `out_dir` | 输出目录；`null` 时为 `<data_dir>/postprocess` | `null` |
 | `laser_wavelength_nm` | 激光波长，用于计算临界密度 `nc` | `800` |
-| `dpi` | PNG 输出分辨率 | `180` |
 | `space_unit` | 图上的空间单位标签 | `nm` |
 | `space_factor` | SDF 中 m 转换到绘图单位的乘数 | `1e9` |
 | `time_unit` | 时间单位标签 | `fs` |
 | `time_factor` | SDF 中 s 转换到绘图单位的乘数 | `1e15` |
+| `plot.format` | 静态图默认格式 | `png` |
+| `plot.dpi` | 位图输出分辨率 | `300` |
+| `plot.fig_single` | 单栏图尺寸，单位 inch | `[3.4, 2.7]` |
+| `plot.fig_double` | 双栏图尺寸，单位 inch | `[7.0, 4.8]` |
+| `plot.font_family` | 普通文本字体 | `Arial` |
+| `plot.mathtext_fontset` | 数学公式字体集 | `stix` |
+| `plot.font_label` | 坐标轴标签字号 | `10` |
+| `plot.font_tick` | 刻度字号 | `8` |
+| `plot.font_legend` | 图例字号 | `8` |
+| `plot.font_panel` | 标题/Panel 字号 | `11` |
+| `plot.font_annotation` | 普通 annotation 默认字号 | `8` |
+| `plot.line_width` | 普通曲线默认线宽 | `1.5` |
+| `plot.axis_width` | 坐标轴和 tick 线宽 | `1.0` |
+| `plot.bbox_inches` | 保存时边界裁切 | `tight` |
+
+旧版本的：
+
+```json
+"dpi": 180
+```
+
+仍然兼容，但新版本推荐统一写到 `settings.plot.dpi` 中。
+
+### 4.1 日常图
+
+默认就是：
+
+```text
+300 dpi PNG
+```
+
+因此 task 中完全不需要额外指定保存格式。
+
+### 4.2 投稿时改成 PDF
+
+如果希望整个算例的静态图都输出成 PDF：
+
+```json
+"plot": {
+  "format": "pdf",
+  "bbox_inches": "tight"
+}
+```
+
+PDF 是矢量输出，`dpi` 对其中的矢量元素不重要，但程序仍会保留该参数以兼容可能包含的 raster 元素。
+
+> 字体说明：默认使用 Arial。macOS 通常自带 Arial；部分 Linux/集群节点可能没有 Arial，此时 Matplotlib 会回退到其他字体并给出 `findfont` 提示。如果希望集群结果与本地严格一致，需要在集群环境安装/配置可用的 Arial，或者把 `font_family` 改为集群已有字体。
+
+### 4.3 单个 task 覆盖图尺寸或格式
+
+绝大多数情况下不用写 `plot`。如果某一张图需要双栏宽度：
+
+```json
+{
+  "type": "xt",
+  "name": "foil_Jy_xt",
+  "plot": {
+    "figure_size": "double"
+  }
+}
+```
+
+支持：
+
+```json
+"figure_size": "single"
+```
+
+```json
+"figure_size": "double"
+```
+
+或者直接指定尺寸：
+
+```json
+"figure_size": [5.0, 3.2]
+```
+
+也可以只让某一张图输出 PDF：
+
+```json
+"plot": {
+  "format": "pdf",
+  "figure_size": "single",
+  "bbox_inches": "tight"
+}
+```
+
+或者单独覆盖 dpi：
+
+```json
+"plot": {
+  "dpi": 600
+}
+```
+
+多 panel 对比图默认使用双栏宽度 `7.0 inch`。如果需要强制指定总尺寸，可写：
+
+```json
+"plot": {
+  "overview_figure_size": [7.0, 6.0]
+}
+```
 
 **重要：**相对路径以 `epochpost_input.json` 所在目录为基准，而不是以 Python 库文件所在目录为基准。
 
