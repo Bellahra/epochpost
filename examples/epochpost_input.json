@@ -40,7 +40,7 @@
   },
   "tasks": [
     {
-      "enabled": false,
+      "enabled": true,
       "type": "spatial",
       "name": "Ey_xy",
       "prefix": "sourcexy",

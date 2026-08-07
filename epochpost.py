@@ -524,41 +524,79 @@ def extract_2d(da, axes, cuts, xlim, ylim):
     da, actual = cut_nearest(da, cuts)
     xdim = axis_dim(da, axes[0])
     ydim = axis_dim(da, axes[1])
-
+    # EPOCH sdf_xarray 不适合 lazy mean
+    # 对多余维度直接取切片
     for dim in list(da.dims):
         if dim not in (xdim, ydim):
-            da = da.mean(dim=dim)
+            # 如果该维度长度为1，直接去掉
+            if da.sizes[dim] == 1:
+                da = da.isel({dim: 0})
+            else:
+                # 默认取中心切片
+                index = da.sizes[dim] // 2
+                da = da.isel({dim: index})
 
+    # 关键：
+    # 强制 sdf_xarray 在这里完成读取
+    da = da.load()
     da = da.transpose(ydim, xdim)
-    x = np.asarray(da.coords[xdim].values) * SPACE_FACTOR
-    y = np.asarray(da.coords[ydim].values) * SPACE_FACTOR
-    values = np.asarray(da.values, dtype=float)
+    
+    x = np.asarray(
+        da.coords[xdim].values
+    ) * SPACE_FACTOR
+
+    y = np.asarray(
+        da.coords[ydim].values
+    ) * SPACE_FACTOR
+
+    values = np.asarray(
+        da.values,
+        dtype=float
+    )
 
     if xlim is not None:
         mask = (x >= xlim[0]) & (x <= xlim[1])
-        x, values = x[mask], values[:, mask]
+        x = x[mask]
+        values = values[:, mask]
+
     if ylim is not None:
         mask = (y >= ylim[0]) & (y <= ylim[1])
-        y, values = y[mask], values[mask, :]
-
+        y = y[mask]
+        values = values[mask, :]
     return x, y, values, actual
 
 
 def extract_line(da, line_axis, cuts, space_range):
+
     da, actual = cut_nearest(da, cuts)
     dim = axis_dim(da, line_axis)
 
     for other_dim in list(da.dims):
         if other_dim != dim:
-            da = da.mean(dim=other_dim)
+            if da.sizes[other_dim] == 1:
+                da = da.isel({other_dim:0})
+            else:
+                index = da.sizes[other_dim]//2
+                da = da.isel({other_dim:index})
 
+    da = da.load()
     da = da.transpose(dim)
-    space = np.asarray(da.coords[dim].values) * SPACE_FACTOR
-    values = np.asarray(da.values, dtype=float)
+    
+    space = np.asarray(
+        da.coords[dim].values
+    ) * SPACE_FACTOR
+    values = np.asarray(
+        da.values,
+        dtype=float
+    )
 
     if space_range is not None:
-        mask = (space >= space_range[0]) & (space <= space_range[1])
-        space, values = space[mask], values[mask]
+        mask = (
+            (space >= space_range[0]) &
+            (space <= space_range[1])
+        )
+        space = space[mask]
+        values = values[mask]
 
     return space, values, actual
 
@@ -758,26 +796,31 @@ def run_spatial(task):
                 ax.set_ylabel(f"{task['axes'][1]} ({SPACE_UNIT})")
                 ax.set_title(
                     f"{task.get('title', task['name'])}, "
-                    f"t={actual_times[index]:.4f} {TIME_UNIT}"
+                    f"time={actual_times[index]:.2f}fs"
                 )
                 add_markers(ax, task.get("markers"))
 
                 if select_mode == "time":
-                    tag = f"target_{float(requested_values[index]):.4f}fs"
-                    request_text = f"target={float(requested_values[index]):.4f} fs"
+                    tag = f"time={actual_times[index]:.2f}fs"
+                    request_text = f"time={actual_times[index]:.2f}fs"
                 else:
-                    tag = f"number_{int(requested_values[index]):04d}"
-                    request_text = f"number={int(requested_values[index])}"
+                    tag = (
+                        f"number_{int(requested_values[index]):04d}"
+                        f"_time={actual_times[index]:.2f}fs"
+                    )
+                    request_text = (
+                        f"number={int(requested_values[index])}, "
+                        f"time={actual_times[index]:.2f}fs"
+                    )
 
                 figure_path = _save_figure(
                     fig, directory,
-                    f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs",
+                    f"{task['name']}_{tag}",
                     task,
                 )
                 plt.close(fig)
                 print(
-                    f"  {request_text} -> {file_names[index]}, "
-                    f"actual={actual_times[index]:.4f} fs"
+                    f"  {request_text} -> {file_names[index]}"
                 )
 
             # 再生成一张统一色标的多选择对比图。
@@ -800,12 +843,12 @@ def run_spatial(task):
                 ax.set_xlabel(f"{task['axes'][0]} ({SPACE_UNIT})")
                 ax.set_ylabel(f"{task['axes'][1]} ({SPACE_UNIT})")
                 if select_mode == "time":
-                    request_line = f"target {float(requested_values[index]):.3f} fs"
+                    ax.set_title(f"time={actual_times[index]:.2f}fs")
                 else:
-                    request_line = f"number {int(requested_values[index])}"
-                ax.set_title(
-                    f"{request_line}\nactual {actual_times[index]:.3f} fs"
-                )
+                    ax.set_title(
+                        f"number {int(requested_values[index])}\n"
+                        f"time={actual_times[index]:.2f}fs"
+                    )
                 add_markers(ax, task.get("markers"))
 
             if last_image is not None:
@@ -825,9 +868,7 @@ def run_spatial(task):
                     actual_cuts=np.asarray(actual_cuts, dtype=object),
                     selection_mode=select_mode,
                 )
-                if select_mode == "time":
-                    save_kwargs["target_times_fs"] = requested_values.astype(float)
-                else:
+                if select_mode == "number":
                     save_kwargs["target_numbers"] = requested_values.astype(int)
                 np.savez_compressed(
                     directory / f"{task['name']}_multiple_{select_mode}.npz",
@@ -1104,25 +1145,31 @@ def run_particle_phase(task):
             ax.set_xlabel(x_label)
             ax.set_ylabel(y_label)
             ax.set_title(
-                f"{task.get('title', task['name'])}, t={actual_times[index]:.4f} fs"
+                f"{task.get('title', task['name'])}, "
+                f"time={actual_times[index]:.2f}fs"
             )
 
             if select_mode == "time":
-                tag = f"target_{float(requested_values[index]):.4f}fs"
-                request_text = f"target={float(requested_values[index]):.4f} fs"
+                tag = f"time={actual_times[index]:.2f}fs"
+                request_text = f"time={actual_times[index]:.2f}fs"
             else:
-                tag = f"number_{int(requested_values[index]):04d}"
-                request_text = f"number={int(requested_values[index])}"
+                tag = (
+                    f"number_{int(requested_values[index]):04d}"
+                    f"_time={actual_times[index]:.2f}fs"
+                )
+                request_text = (
+                    f"number={int(requested_values[index])}, "
+                    f"time={actual_times[index]:.2f}fs"
+                )
 
             figure_path = _save_figure(
                 fig, directory,
-                f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs",
+                f"{task['name']}_{tag}",
                 task,
             )
             plt.close(fig)
             print(
-                f"  {request_text} -> {file_names[index]}, "
-                f"actual={actual_times[index]:.4f} fs"
+                f"  {request_text} -> {file_names[index]}"
             )
 
         nplots = len(histograms)
@@ -1144,12 +1191,12 @@ def run_particle_phase(task):
             ax.set_xlabel(x_label)
             ax.set_ylabel(y_label)
             if select_mode == "time":
-                request_line = f"target {float(requested_values[index]):.3f} fs"
+                ax.set_title(f"time={actual_times[index]:.2f}fs")
             else:
-                request_line = f"number {int(requested_values[index])}"
-            ax.set_title(
-                f"{request_line}\nactual {actual_times[index]:.3f} fs"
-            )
+                ax.set_title(
+                    f"number {int(requested_values[index])}\n"
+                    f"time={actual_times[index]:.2f}fs"
+                )
 
         if last_image is not None:
             fig.colorbar(
@@ -1172,9 +1219,7 @@ def run_particle_phase(task):
                 variables=np.asarray(variable_names, dtype=object),
                 selection_mode=select_mode,
             )
-            if select_mode == "time":
-                save_kwargs["target_times_fs"] = requested_values.astype(float)
-            else:
+            if select_mode == "number":
                 save_kwargs["target_numbers"] = requested_values.astype(int)
             np.savez_compressed(
                 directory / f"{task['name']}_multiple_{select_mode}.npz",
