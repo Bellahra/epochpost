@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 """epochpost: 通用 EPOCH PIC 后处理工具，使用 sdf_xarray。
 
-日常使用时不需要修改本文件；绘图任务、数据目录和输出参数均写在
-``epochpost_input.json`` 中。
+日常使用时不需要修改本文件；绘图任务、数据目录、论文绘图样式和输出参数
+均写在 ``epochpost_input.json`` 中。
 
 运行：
-    python epochpost.py
-    python epochpost.py epochpost_input.json
+    python new.py
+    python new.py epochpost_input.json
 
 也可以作为模块调用：
-    from epochpost import run_config
+    from new import run_config
     run_config("epochpost_input.json")
 """
 
@@ -32,11 +32,32 @@ import sdf_xarray as sx
 DATA_DIR = Path("Data")
 OUT_DIR = DATA_DIR / "postprocess"
 LASER_WAVELENGTH_NM = 800.0
-DPI = 180
 SPACE_UNIT = "nm"
 SPACE_FACTOR = 1.0e9
 TIME_UNIT = "fs"
 TIME_FACTOR = 1.0e15
+
+# 论文绘图默认参数。settings.plot 可以全局覆盖；task.plot 可以单图覆盖。
+PLOT_DEFAULTS = {
+    "format": "png",
+    "dpi": 300,
+    "fig_single": [3.4, 2.7],
+    "fig_double": [7.0, 4.8],
+    "font_family": "Arial",
+    "mathtext_fontset": "stix",
+    "font_label": 10,
+    "font_tick": 8,
+    "font_legend": 8,
+    "font_panel": 11,
+    "font_annotation": 8,
+    "line_width": 1.5,
+    "axis_width": 1.0,
+    "bbox_inches": "tight",
+}
+PLOT_SETTINGS = dict(PLOT_DEFAULTS)
+# 保留 DPI 全局量，兼容旧代码/外部调用。
+DPI = int(PLOT_DEFAULTS["dpi"])
+
 NC = None
 J0 = None
 
@@ -59,12 +80,52 @@ def _resolve_path(value, base_dir):
     return path.resolve()
 
 
+def _validate_pair(value, name):
+    """把 [width, height] 一类配置转换为两个正浮点数。"""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(f"{name} 必须是长度为 2 的数组，例如 [3.4, 2.7]")
+    pair = [float(value[0]), float(value[1])]
+    if pair[0] <= 0 or pair[1] <= 0:
+        raise ValueError(f"{name} 中的尺寸必须 > 0")
+    return pair
+
+
+def _apply_plot_style():
+    """把全局论文绘图规范应用到 Matplotlib。"""
+    plt.rcParams.update({
+        "font.family": PLOT_SETTINGS["font_family"],
+        "mathtext.fontset": PLOT_SETTINGS["mathtext_fontset"],
+        "font.size": float(PLOT_SETTINGS["font_annotation"]),
+        "axes.labelsize": float(PLOT_SETTINGS["font_label"]),
+        "axes.titlesize": float(PLOT_SETTINGS["font_panel"]),
+        "figure.titlesize": float(PLOT_SETTINGS["font_panel"]),
+        "xtick.labelsize": float(PLOT_SETTINGS["font_tick"]),
+        "ytick.labelsize": float(PLOT_SETTINGS["font_tick"]),
+        "legend.fontsize": float(PLOT_SETTINGS["font_legend"]),
+        "lines.linewidth": float(PLOT_SETTINGS["line_width"]),
+        "axes.linewidth": float(PLOT_SETTINGS["axis_width"]),
+        "xtick.major.width": float(PLOT_SETTINGS["axis_width"]),
+        "xtick.minor.width": float(PLOT_SETTINGS["axis_width"]),
+        "ytick.major.width": float(PLOT_SETTINGS["axis_width"]),
+        "ytick.minor.width": float(PLOT_SETTINGS["axis_width"]),
+        # 让 PDF/PS 中的文字尽量保持为可编辑 TrueType 字体。
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    })
+
+
 def configure(settings=None, base_dir=None):
-    """根据 JSON settings 更新全局运行参数。"""
-    global DATA_DIR, OUT_DIR, LASER_WAVELENGTH_NM, DPI
+    """根据 JSON settings 更新全局运行参数。
+
+    新版绘图设置位于 settings.plot。旧版 settings.dpi 仍兼容；
+    若 settings.plot.dpi 同时存在，则以新版值为准。
+    """
+    global DATA_DIR, OUT_DIR, LASER_WAVELENGTH_NM, DPI, PLOT_SETTINGS
     global SPACE_UNIT, SPACE_FACTOR, TIME_UNIT, TIME_FACTOR
 
     settings = settings or {}
+    if not isinstance(settings, dict):
+        raise TypeError("settings 必须是 JSON object")
     base_dir = Path(base_dir or ".").resolve()
 
     DATA_DIR = _resolve_path(settings.get("data_dir", "Data"), base_dir)
@@ -76,12 +137,102 @@ def configure(settings=None, base_dir=None):
     )
 
     LASER_WAVELENGTH_NM = float(settings.get("laser_wavelength_nm", 800.0))
-    DPI = int(settings.get("dpi", 180))
     SPACE_UNIT = str(settings.get("space_unit", "nm"))
     SPACE_FACTOR = float(settings.get("space_factor", 1.0e9))
     TIME_UNIT = str(settings.get("time_unit", "fs"))
     TIME_FACTOR = float(settings.get("time_factor", 1.0e15))
+
+    plot_input = settings.get("plot") or {}
+    if not isinstance(plot_input, dict):
+        raise TypeError("settings.plot 必须是 JSON object")
+
+    merged_plot = dict(PLOT_DEFAULTS)
+    # 兼容旧版 settings.dpi；新版 settings.plot.dpi 优先。
+    if "dpi" in settings and "dpi" not in plot_input:
+        merged_plot["dpi"] = settings["dpi"]
+    merged_plot.update(plot_input)
+
+    merged_plot["format"] = str(merged_plot["format"]).lower().lstrip(".")
+    if not merged_plot["format"]:
+        raise ValueError("settings.plot.format 不能为空")
+    merged_plot["dpi"] = int(merged_plot["dpi"])
+    if merged_plot["dpi"] <= 0:
+        raise ValueError("settings.plot.dpi 必须 > 0")
+    merged_plot["fig_single"] = _validate_pair(
+        merged_plot["fig_single"], "settings.plot.fig_single"
+    )
+    merged_plot["fig_double"] = _validate_pair(
+        merged_plot["fig_double"], "settings.plot.fig_double"
+    )
+
+    for key in (
+        "font_label", "font_tick", "font_legend", "font_panel",
+        "font_annotation", "line_width", "axis_width",
+    ):
+        merged_plot[key] = float(merged_plot[key])
+        if merged_plot[key] <= 0:
+            raise ValueError(f"settings.plot.{key} 必须 > 0")
+
+    PLOT_SETTINGS = merged_plot
+    DPI = int(PLOT_SETTINGS["dpi"])
+    _apply_plot_style()
     _update_derived_constants()
+
+
+def _task_plot_settings(task=None):
+    """返回某个 task 的有效绘图设置。"""
+    settings = dict(PLOT_SETTINGS)
+    if task is not None:
+        override = task.get("plot") or {}
+        if not isinstance(override, dict):
+            raise TypeError(f"task {task.get('name', '<unnamed>')} 的 plot 必须是 JSON object")
+        settings.update(override)
+    return settings
+
+
+def _figure_size(task=None):
+    """解析 task.plot.figure_size。默认使用论文单栏尺寸。"""
+    settings = _task_plot_settings(task)
+    spec = settings.get("figure_size", "single")
+
+    if isinstance(spec, str):
+        key = spec.lower()
+        if key == "single":
+            return tuple(_validate_pair(settings["fig_single"], "plot.fig_single"))
+        if key == "double":
+            return tuple(_validate_pair(settings["fig_double"], "plot.fig_double"))
+        raise ValueError('plot.figure_size 字符串只能是 "single" 或 "double"')
+
+    return tuple(_validate_pair(spec, "plot.figure_size"))
+
+
+def _overview_figure_size(task=None):
+    """多 panel 图默认使用双栏尺寸，可由 overview_figure_size 强制覆盖。"""
+    settings = _task_plot_settings(task)
+    if "overview_figure_size" in settings:
+        return tuple(_validate_pair(
+            settings["overview_figure_size"], "plot.overview_figure_size"
+        ))
+    return tuple(_validate_pair(settings["fig_double"], "plot.fig_double"))
+
+
+def _save_figure(fig, directory, stem, task=None):
+    """按全局/task 绘图设置保存静态图并返回实际路径。"""
+    settings = _task_plot_settings(task)
+    fmt = str(settings.get("format", "png")).lower().lstrip(".")
+    if not fmt:
+        raise ValueError("plot.format 不能为空")
+    dpi = int(settings.get("dpi", PLOT_SETTINGS["dpi"]))
+    if dpi <= 0:
+        raise ValueError("plot.dpi 必须 > 0")
+
+    path = directory / f"{stem}.{fmt}"
+    kwargs = {"dpi": dpi, "format": fmt}
+    bbox_inches = settings.get("bbox_inches", "tight")
+    if bbox_inches not in (None, ""):
+        kwargs["bbox_inches"] = bbox_inches
+    fig.savefig(path, **kwargs)
+    return path
 
 
 def _expand_sequence_spec(value, name):
@@ -597,7 +748,7 @@ def run_spatial(task):
 
             # 每个选择项单独保存一张图。
             for index, values in enumerate(frames):
-                fig, ax = plt.subplots(figsize=(8, 5.8), constrained_layout=True)
+                fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
                 image = ax.pcolormesh(
                     x, y, values, shading="auto",
                     cmap=task.get("cmap", "viridis"), norm=norm
@@ -618,10 +769,11 @@ def run_spatial(task):
                     tag = f"number_{int(requested_values[index]):04d}"
                     request_text = f"number={int(requested_values[index])}"
 
-                figure_path = directory / (
-                    f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs.png"
+                figure_path = _save_figure(
+                    fig, directory,
+                    f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs",
+                    task,
                 )
-                fig.savefig(figure_path, dpi=DPI)
                 plt.close(fig)
                 print(
                     f"  {request_text} -> {file_names[index]}, "
@@ -633,7 +785,7 @@ def run_spatial(task):
             ncols = min(3, nplots)
             nrows = int(np.ceil(nplots / ncols))
             fig, axes = plt.subplots(
-                nrows, ncols, figsize=(6.0 * ncols, 4.8 * nrows),
+                nrows, ncols, figsize=_overview_figure_size(task),
                 constrained_layout=True, squeeze=False
             )
             last_image = None
@@ -659,8 +811,9 @@ def run_spatial(task):
             if last_image is not None:
                 fig.colorbar(last_image, ax=axes.ravel().tolist(), label=label)
             fig.suptitle(task.get("title", task["name"]))
-            overview_path = directory / f"{task['name']}_multiple_{select_mode}.png"
-            fig.savefig(overview_path, dpi=DPI)
+            overview_path = _save_figure(
+                fig, directory, f"{task['name']}_multiple_{select_mode}", task
+            )
             plt.close(fig)
 
             if task.get("save_data", False):
@@ -692,7 +845,7 @@ def run_spatial(task):
         )
         values = normalize(values, task.get("normalization"))
 
-        fig, ax = plt.subplots(figsize=(8, 5.8), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
         image = ax.pcolormesh(
             x, y, values, shading="auto", cmap=task.get("cmap", "viridis"),
             norm=color_norm(values, task)
@@ -703,8 +856,7 @@ def run_spatial(task):
         ax.set_title(f"{task.get('title', task['name'])}, t={time_fs:.4f} {TIME_UNIT}")
         add_markers(ax, task.get("markers"))
 
-        figure_path = directory / f"{task['name']}.png"
-        fig.savefig(figure_path, dpi=DPI)
+        figure_path = _save_figure(fig, directory, task["name"], task)
         plt.close(fig)
 
         if task.get("save_data", False):
@@ -749,7 +901,7 @@ def run_spatial(task):
     times = np.asarray(times)
     norm = color_norm(frames, task)
 
-    fig, ax = plt.subplots(figsize=(8, 5.8), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
     image = ax.imshow(
         frames[0], origin="lower", aspect="auto", interpolation="nearest",
         extent=[x.min(), x.max(), y.min(), y.max()],
@@ -825,7 +977,7 @@ def run_xt(task):
     files = np.asarray(files)[order]
 
     directory = output_directory(task)
-    fig, ax = plt.subplots(figsize=(8.4, 5.8), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
     image = ax.pcolormesh(
         space, times, values, shading="auto",
         cmap=task.get("cmap", "viridis"), norm=color_norm(values, task)
@@ -839,8 +991,7 @@ def run_xt(task):
     ax.set_title(task.get("title", task["name"]))
     add_markers(ax, task.get("markers"))
 
-    figure_path = directory / f"{task['name']}.png"
-    fig.savefig(figure_path, dpi=DPI)
+    figure_path = _save_figure(fig, directory, task["name"], task)
     plt.close(fig)
 
     if task.get("save_data", False):
@@ -886,7 +1037,7 @@ def run_particle_phase(task):
             y = normalize(y, task.get("y_normalization"))
             histogram, x_edges, y_edges = phase_histogram(x, y, weights, task)
 
-            fig, ax = plt.subplots(figsize=(7.6, 6.0), constrained_layout=True)
+            fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
             image = ax.pcolormesh(
                 x_edges, y_edges, histogram, shading="auto",
                 cmap=task.get("cmap", "viridis"), norm=color_norm(histogram, task)
@@ -896,8 +1047,7 @@ def run_particle_phase(task):
             ax.set_ylabel(y_label)
             ax.set_title(f"{task.get('title', task['name'])}, t={time_fs:.4f} fs")
 
-            figure_path = directory / f"{task['name']}.png"
-            fig.savefig(figure_path, dpi=DPI)
+            figure_path = _save_figure(fig, directory, task["name"], task)
             plt.close(fig)
 
             if task.get("save_data", False):
@@ -945,7 +1095,7 @@ def run_particle_phase(task):
         norm = color_norm(histograms, task)
 
         for index, histogram in enumerate(histograms):
-            fig, ax = plt.subplots(figsize=(7.6, 6.0), constrained_layout=True)
+            fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
             image = ax.pcolormesh(
                 x_edges, y_edges, histogram, shading="auto",
                 cmap=task.get("cmap", "viridis"), norm=norm
@@ -964,10 +1114,11 @@ def run_particle_phase(task):
                 tag = f"number_{int(requested_values[index]):04d}"
                 request_text = f"number={int(requested_values[index])}"
 
-            figure_path = directory / (
-                f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs.png"
+            figure_path = _save_figure(
+                fig, directory,
+                f"{task['name']}_{tag}_actual_{actual_times[index]:.4f}fs",
+                task,
             )
-            fig.savefig(figure_path, dpi=DPI)
             plt.close(fig)
             print(
                 f"  {request_text} -> {file_names[index]}, "
@@ -978,7 +1129,7 @@ def run_particle_phase(task):
         ncols = min(3, nplots)
         nrows = int(np.ceil(nplots / ncols))
         fig, axes = plt.subplots(
-            nrows, ncols, figsize=(5.6 * ncols, 4.8 * nrows),
+            nrows, ncols, figsize=_overview_figure_size(task),
             constrained_layout=True, squeeze=False
         )
         last_image = None
@@ -1006,8 +1157,9 @@ def run_particle_phase(task):
                 label=task.get("color_label", "particle count")
             )
         fig.suptitle(task.get("title", task["name"]))
-        overview_path = directory / f"{task['name']}_multiple_{select_mode}.png"
-        fig.savefig(overview_path, dpi=DPI)
+        overview_path = _save_figure(
+            fig, directory, f"{task['name']}_multiple_{select_mode}", task
+        )
         plt.close(fig)
 
         if task.get("save_data", False):
@@ -1063,7 +1215,7 @@ def run_particle_phase(task):
     times = np.asarray(times)
     norm = color_norm(histograms, task)
 
-    fig, ax = plt.subplots(figsize=(7.6, 6.0), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
     image = ax.imshow(
         histograms[0], origin="lower", aspect="auto", interpolation="nearest",
         extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]],
@@ -1134,7 +1286,7 @@ def run_particle_xt(task):
     centers = 0.5 * (edges[:-1] + edges[1:])
 
     directory = output_directory(task)
-    fig, ax = plt.subplots(figsize=(8.4, 5.8), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=_figure_size(task), constrained_layout=True)
     image = ax.pcolormesh(
         centers, times, values, shading="auto",
         cmap=task.get("cmap", "viridis"), norm=color_norm(values, task)
@@ -1144,8 +1296,7 @@ def run_particle_xt(task):
     ax.set_ylabel(f"t ({TIME_UNIT})")
     ax.set_title(task.get("title", task["name"]))
 
-    figure_path = directory / f"{task['name']}.png"
-    fig.savefig(figure_path, dpi=DPI)
+    figure_path = _save_figure(fig, directory, task["name"], task)
     plt.close(fig)
 
     if task.get("save_data", False):
@@ -1183,6 +1334,12 @@ def run_config(config_path="epochpost_input.json"):
     print(f"CONFIG   = {config_path}")
     print(f"DATA_DIR = {DATA_DIR}")
     print(f"OUT_DIR  = {OUT_DIR}")
+    print(
+        "PLOT     = "
+        f"{PLOT_SETTINGS['format']}, {PLOT_SETTINGS['dpi']} dpi, "
+        f"single={PLOT_SETTINGS['fig_single']} in, "
+        f"double={PLOT_SETTINGS['fig_double']} in"
+    )
     print(f"nc       = {NC:.6e} m^-3")
     print("=" * 72)
 
@@ -1227,7 +1384,7 @@ def _default_config_path():
             return legacy
     raise FileNotFoundError(
         "当前目录没有 epochpost_input.json。请指定配置文件："
-        " python epochpost.py path/to/epochpost_input.json"
+        " python new.py path/to/epochpost_input.json"
     )
 
 
