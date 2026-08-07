@@ -1,0 +1,210 @@
+{
+  "settings": {
+    "data_dir": "Data",
+    "out_dir": null,
+    "laser_wavelength_nm": 800.0,
+    "dpi": 180,
+    "space_unit": "nm",
+    "space_factor": 1000000000.0,
+    "time_unit": "fs",
+    "time_factor": 1000000000000000.0
+  },
+  "inspect": {
+    "enabled": false,
+    "prefix": "foilparticles",
+    "particle_file": true,
+    "select": {
+      "mode": "latest"
+    }
+  },
+  "tasks": [
+    {
+      "enabled": false,
+      "type": "spatial",
+      "name": "foil_density_xy_multi_number",
+      "prefix": "sourcexyspecies",
+      "variable": {
+        "contains": ["Number_Density", "Electron_foil"]
+      },
+      "axes": ["x", "y"],
+      "cuts": {
+        "z": 0.0
+      },
+      "select": {
+        "mode": "number",
+        "number": {
+          "arange": [10, 79, 5]
+        }
+      },
+      "animate": false,
+      "xlim": [320.0, 760.0],
+      "ylim": [-750.0, 750.0],
+      "normalization": {
+        "kind": "density_nc",
+        "label": "$n_e/n_c$"
+      },
+      "scale": "log",
+      "vmin": 0.01,
+      "vmax": 200.0,
+      "cmap": "magma",
+      "title": "Foil-electron density",
+      "markers": [400.0, 480.0, 640.0],
+      "save_data": true
+    },
+    {
+      "enabled": false,
+      "type": "spatial",
+      "name": "foil_density_xy_multi_time",
+      "prefix": "sourcexyspecies",
+      "variable": {
+        "contains": ["Number_Density", "Electron_foil"]
+      },
+      "axes": ["x", "y"],
+      "cuts": {
+        "z": 0.0
+      },
+      "select": {
+        "mode": "time",
+        "time_fs": [2.0, 4.0, 6.0, 8.0, 10.0]
+      },
+      "animate": false,
+      "xlim": [320.0, 760.0],
+      "ylim": [-750.0, 750.0],
+      "normalization": {
+        "kind": "density_nc",
+        "label": "$n_e/n_c$"
+      },
+      "scale": "log",
+      "vmin": 0.01,
+      "vmax": 200.0,
+      "cmap": "magma",
+      "title": "Foil-electron density",
+      "markers": [400.0, 480.0, 640.0],
+      "save_data": true
+    },
+    {
+      "enabled": false,
+      "type": "spatial",
+      "name": "foil_density_xy_animation",
+      "prefix": "sourcexyspecies",
+      "variable": {
+        "contains": ["Number_Density", "Electron_foil"]
+      },
+      "axes": ["x", "y"],
+      "cuts": {
+        "z": 0.0
+      },
+      "animate": true,
+      "time_range_fs": [0.0, null],
+      "stride": 5,
+      "max_frames": 100,
+      "fps": 12,
+      "xlim": [320.0, 760.0],
+      "ylim": [-750.0, 750.0],
+      "normalization": {
+        "kind": "density_nc",
+        "label": "$n_e/n_c$"
+      },
+      "scale": "log",
+      "vmin": 0.01,
+      "vmax": 200.0,
+      "cmap": "magma",
+      "title": "Foil-electron density",
+      "markers": [400.0, 480.0, 640.0],
+      "save_data": false
+    },
+    {
+      "enabled": false,
+      "type": "xt",
+      "name": "foil_Jy_xt_y0",
+      "prefix": "sourcexyspecies",
+      "variable": {
+        "contains": ["Jy", "Electron_foil"]
+      },
+      "line_axis": "x",
+      "cuts": {
+        "y": 0.0,
+        "z": 0.0
+      },
+      "time_range_fs": [0.0, null],
+      "stride": 1,
+      "space_range": [320.0, 760.0],
+      "normalization": {
+        "kind": "current_j0",
+        "label": "$J_y/(e n_c c)$"
+      },
+      "scale": "symlog",
+      "linthresh": 0.02,
+      "percentile": 99.5,
+      "cmap": "RdBu_r",
+      "title": "$J_y(x,t)$ at $y=z=0$",
+      "markers": [400.0, 480.0, 640.0],
+      "save_data": true
+    },
+    {
+      "enabled": false,
+      "type": "particle_phase",
+      "name": "foil_x_px_multi_time",
+      "prefix": "foilparticles",
+      "x_variable": {
+        "contains": ["Grid_Particles"],
+        "component": "x"
+      },
+      "y_variable": {
+        "contains": ["Particles_Px"]
+      },
+      "weight_variable": {
+        "contains": ["Particles_Weight"]
+      },
+      "x_normalization": {
+        "factor": 1000000000.0,
+        "label": "x (nm)"
+      },
+      "y_normalization": {
+        "kind": "momentum_mec",
+        "label": "$p_x/(m_e c)$"
+      },
+      "select": {
+        "mode": "time",
+        "time_fs": {
+          "arange": [2.0, 10.1, 2.0]
+        }
+      },
+      "animate": false,
+      "xlim": [360.0, 720.0],
+      "ylim": [-20.0, 40.0],
+      "bins": [400, 400],
+      "scale": "log",
+      "cmap": "viridis",
+      "title": "Foil electrons: $x-p_x$ phase space",
+      "color_label": "weighted particle count",
+      "save_data": true
+    },
+    {
+      "enabled": false,
+      "type": "particle_xt",
+      "name": "foil_particle_xt",
+      "prefix": "foilparticles",
+      "position_variable": {
+        "contains": ["Grid_Particles"],
+        "component": "x"
+      },
+      "weight_variable": {
+        "contains": ["Particles_Weight"]
+      },
+      "position_normalization": {
+        "factor": 1000000000.0,
+        "label": "x (nm)"
+      },
+      "time_range_fs": [0.0, null],
+      "stride": 1,
+      "space_range": [360.0, 720.0],
+      "bins": 500,
+      "scale": "log",
+      "cmap": "magma",
+      "title": "Foil-particle longitudinal distribution",
+      "color_label": "weighted particle count",
+      "save_data": true
+    }
+  ]
+}
